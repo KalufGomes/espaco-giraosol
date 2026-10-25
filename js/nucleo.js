@@ -136,6 +136,14 @@
   App.e = function () { var p = App.perfil(); return Array.prototype.slice.call(arguments).indexOf(p) >= 0; };
   App.ehFin = function () { return App.e('admin', 'financeiro'); };
 
+  /** Carrega a lista de profissionais (de novo, se ainda estiver vazia). Em erro, avisa em vez de deixar a agenda vazia. */
+  App.garantirProfissionais = function (forcar) {
+    if (!forcar && App.estado.profissionais && App.estado.profissionais.length) return Promise.resolve(App.estado.profissionais);
+    return App.api('profissionais.listar').then(function (l) { App.estado.profissionais = l; return l; }, function (e) {
+      if (e && e.codigo !== 'SESSAO') App.toast('Não consegui carregar as profissionais: ' + (e.message || 'sem conexão') + '. Atualize a página.', 'erro');
+      return App.estado.profissionais || [];
+    });
+  };
   App.profissionais = function () { return App.estado.profissionais || []; };
   App.prof = function (id) { return App.profissionais().filter(function (p) { return p.id === id; })[0] || null; };
 
@@ -170,7 +178,7 @@
     desenhar(ctx);
   };
   function desenhar(ctx) {
-    return Promise.resolve().then(function () { return ctx.def.render(ctx); }).then(function (html) {
+    return App.garantirProfissionais(false).then(function () { return ctx.def.render(ctx); }).then(function (html) {
       if (App.atual !== ctx) return;
       if (typeof html === 'string') ctx.el.innerHTML = html;
       if (ctx.def.depois) ctx.def.depois(ctx);
@@ -291,7 +299,7 @@
   /* ---------- Início ---------- */
   App.iniciar = function () {
     App.montarLayout();
-    return App.api('profissionais.listar').then(function (l) { App.estado.profissionais = l; }).catch(function () { }).then(function () {
+    return App.garantirProfissionais(true).then(function () {
       if (!location.hash || location.hash === '#/' || location.hash === '#') location.hash = '#/' + App.inicial();
       App.renderizar();
       App.atualizarAvisos();
