@@ -260,6 +260,7 @@
     { rota: 'pacientes', t: 'Pacientes', i: 'pacientes', p: ['admin', 'financeiro', 'secretaria'] },
     { rota: 'presenca', t: 'Listas de presença', i: 'presenca', p: ['admin', 'financeiro', 'secretaria'] },
     { rota: 'recados', t: 'Recados por WhatsApp', i: 'zap', p: ['admin', 'financeiro', 'secretaria'] },
+    { rota: 'recebimentos', t: 'Registrar pagamento', i: 'dinheiro', p: ['secretaria'] },
     { sec: 'Financeiro', p: ['admin', 'financeiro'] },
     { rota: 'financeiro/decisoes', t: 'Decisões de cobrança', i: 'fech', p: ['admin', 'financeiro'] },
     { rota: 'financeiro/fechamento', t: 'Fechamento do mês', i: 'fech', p: ['admin', 'financeiro'] },
@@ -364,4 +365,38 @@
       App.api('auth.eu').then(function (u) { App.estado.usuario = u; U.ls.set('sessao', { token: s.token, usuario: u }); App.iniciar(); }, function (e) { if (e.codigo === 'REDE') { App.iniciar(); App.toast(e.message, 'erro'); } });
     } else App.mostrarLogin();
   });
+})();
+
+/* Olhinho para mostrar ou esconder a senha, em todos os campos de senha (inclusive os que aparecem depois). */
+(function () {
+  'use strict';
+  var OLHO = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var FECHADO = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.9 17.9A10.4 10.4 0 0 1 12 19C5 19 1 12 1 12a18.7 18.7 0 0 1 5.1-5.9M9.9 5.2A9.7 9.7 0 0 1 12 5c7 0 11 7 11 7a18.6 18.6 0 0 1-2.2 3.2"/><path d="M14.1 14.1a3 3 0 1 1-4.2-4.2"/><path d="M1 1l22 22"/></svg>';
+  function preparar(raiz) {
+    (raiz.querySelectorAll ? raiz.querySelectorAll('input[type=password]:not([data-olho])') : []).forEach(function (inp) {
+      inp.setAttribute('data-olho', '1');
+      var caixa = document.createElement('span');
+      caixa.className = 'senha-caixa';
+      inp.parentNode.insertBefore(caixa, inp);
+      caixa.appendChild(inp);
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'olho'; b.tabIndex = 0;
+      b.setAttribute('aria-label', 'Mostrar senha'); b.innerHTML = OLHO;
+      b.addEventListener('click', function (ev) {
+        ev.preventDefault(); ev.stopPropagation();
+        var mostrar = inp.type === 'password';
+        inp.type = mostrar ? 'text' : 'password';
+        b.innerHTML = mostrar ? FECHADO : OLHO;
+        b.setAttribute('aria-label', mostrar ? 'Esconder senha' : 'Mostrar senha');
+        inp.focus();
+      });
+      caixa.appendChild(b);
+    });
+  }
+  function iniciar() {
+    preparar(document);
+    new MutationObserver(function (ms) { ms.forEach(function (m) { m.addedNodes.forEach(function (n) { if (n.nodeType === 1) preparar(n); }); }); })
+      .observe(document.body, { childList: true, subtree: true });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
 })();

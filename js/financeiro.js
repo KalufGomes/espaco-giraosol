@@ -192,13 +192,17 @@
         var h = '<section class="cartao"><h2>Enviar comprovantes</h2><div class="sub">Salve a imagem do comprovante (do grupo do WhatsApp ou do banco) e envie aqui. O sistema lê valor, data e nome e sugere a cobrança. A baixa só vale depois que você confirmar.</div>' +
           '<div class="linha"><input class="ent" type="file" id="arq-comp" accept="image/*,application/pdf" multiple style="max-width:420px"><button class="btn ama" data-acao="enviarComp">Ler comprovantes</button></div></section>';
         if (!r[0].length) return h + '<div class="cartao vazio">Nenhum comprovante aguardando conferência.</div>';
+        var din = r[0].filter(function (p) { return p.forma === 'dinheiro'; });
+        if (din.length) h += '<div class="alerta a-aviso">Dinheiro informado pela recepção aguardando conferência: <b>' + U.moeda(din.reduce(function (t, p) { return t + Number(p.valor || 0); }, 0)) + '</b> em ' + din.length + ' lançamento(s). Confira com o dinheiro recebido antes de confirmar.</div>';
         return h + '<h2>Aguardando conferência (' + r[0].length + ')</h2>' + r[0].map(function (p, i) {
           var l = p.leituraJson || {}, sug = l.sugestoes || [];
-          return '<section class="cartao"><div class="linha entre"><div><b>' + (p.valor ? U.moeda(p.valor) : 'Valor não lido') + '</b> · ' + U.dataBr(p.data) + (l.leu === false ? ' <span class="selo s-esp">Não consegui ler o texto</span>' : '') + '</div><button class="btn peq" data-acao="verAnexo" data-id="' + p.comprovanteId + '">Ver comprovante</button></div>' +
+          return '<section class="cartao"><div class="linha entre"><div><b>' + (p.valor ? U.moeda(p.valor) : 'Valor não lido') + '</b> · ' + U.dataBr(p.data) + (p.forma === 'dinheiro' ? ' <span class="selo s-esp">Dinheiro</span>' : '') + (l.leu === false ? ' <span class="selo s-esp">Não consegui ler o texto</span>' : '') + (p.repetido ? ' <span class="selo s-ruim">Parece repetido</span>' : '') +
+            (p.informadoPor ? '<div class="sub peq">Informado por ' + esc(p.informadoPor) + (p.paciente ? ' · paciente ' + esc(p.paciente) : '') + (l.observacao ? ' · ' + esc(l.observacao) : '') + '</div>' : '') + '</div>' +
+            (p.comprovanteId ? '<button class="btn peq" data-acao="verAnexo" data-id="' + p.comprovanteId + '">Ver comprovante</button>' : '') + '</div>' +
             '<form class="form" data-form="confirmar" data-i="' + i + '"><label class="campo todo">Cobrança<select class="ent" name="cobrancaId">' + U.opcoes(sug.map(function (s) { return { v: s.cobrancaId, t: s.responsavel + ' · ' + s.pacientes.join(', ') + ' · ' + U.nomeMes(s.competencia) + ' · saldo ' + U.moeda(s.saldo) }; }), p.cobrancaId, sug.length ? 'Não é nenhuma destas (registrar como adiantamento)' : 'Nenhuma cobrança sugerida (registrar como adiantamento)') + '</select></label>' +
-            '<label class="campo">Paciente (para adiantamento)<select class="ent" name="pacienteId">' + U.opcoes(ctx.dados.pacs.map(function (x) { return { v: x.id, t: x.nome }; }), '', '—') + '</select></label>' +
+            '<label class="campo">Paciente (para adiantamento)<select class="ent" name="pacienteId">' + U.opcoes(ctx.dados.pacs.map(function (x) { return { v: x.id, t: x.nome }; }), p.pacienteId || '', '—') + '</select></label>' +
             '<label class="campo">Valor (R$)<input class="ent" name="valor" inputmode="decimal" value="' + (p.valor ? U.num(p.valor) : '') + '" required></label><label class="campo">Data<input class="ent" type="date" name="data" value="' + p.data + '" required></label>' +
-            '<div class="campo todo linha"><button class="btn pri" type="submit">Confirmar baixa</button><button class="btn perigo" type="button" data-acao="descartar" data-id="' + p.id + '">Descartar</button></div></form></section>';
+            '<div class="campo todo"><div class="linha"><button class="btn pri" type="submit">Confirmar baixa</button><button class="btn perigo" type="button" data-acao="descartar" data-id="' + p.id + '">Descartar</button></div></div></form></section>';
         }).join('');
       });
     },
@@ -207,14 +211,14 @@
         var arqs = Array.prototype.slice.call(document.getElementById('arq-comp').files);
         if (!arqs.length) { App.toast('Escolha o(s) arquivo(s).', 'erro'); return; }
         el.disabled = true; el.textContent = 'Lendo…';
-        arqs.reduce(function (p, a) { return p.then(function () { return U.lerArquivo(a).then(function (f) { return App.api('anexos.enviar', { tipo: 'comprovante', nome: f.nome, mime: f.mime, base64: f.base64 }); }).then(function (an) { return App.api('financeiro.comprovante', { anexoId: an.id }); }); }); }, Promise.resolve())
+        App.lerComprovantesReceber(arqs)
           .then(function () { App.toast('Comprovante(s) lido(s). Confira abaixo.', 'ok'); ctx.recarregar(); }, function (e) { App.toast(e.message, 'erro'); el.disabled = false; el.textContent = 'Ler comprovantes'; });
       },
       confirmar: function (f, ev, ctx) {
         var p = ctx.dados.l[Number(f.getAttribute('data-i'))], d = U.dadosForm(f);
         return App.chamar('financeiro.pre_baixa_confirmar', { id: p.id, cobrancaId: d.cobrancaId, pacienteId: d.pacienteId, valor: U.lerNum(d.valor), data: d.data }, 'Baixa confirmada.').then(function (r) { if (r) ctx.recarregar(); });
       },
-      descartar: function (el, ev, ctx) { App.confirmar('Descartar esta pré-baixa?').then(function (ok) { if (ok) App.chamar('financeiro.pre_baixa_descartar', { id: el.getAttribute('data-id') }, 'Descartada.').then(function (r) { if (r) ctx.recarregar(); }); }); },
+      descartar: function (el, ev, ctx) { App.confirmar('Descartar esta pré-baixa? Se foi a recepção que informou, ela recebe o aviso com o motivo.', { campo: 'Motivo', botao: 'Descartar', perigo: true }).then(function (m) { if (m) App.chamar('financeiro.pre_baixa_descartar', { id: el.getAttribute('data-id'), motivo: m }, 'Descartada.').then(function (r) { if (r) ctx.recarregar(); }); }); },
       verAnexo: function (el) { App.api('anexos.baixar', { id: el.getAttribute('data-id') }).then(function (a) { U.abrir(a.mime, a.base64); }, function (e) { App.toast(e.message, 'erro'); }); }
     }
   });
@@ -300,6 +304,92 @@
     acoes: {
       mes: function (el) { location.hash = '#/repasse?mes=' + el.value; },
       nf: function (el, ev, ctx) { escolherNf(ctx.dados.r.repasseId, function () { ctx.recarregar(); }); }
+    }
+  });
+
+  /* ---------- Comprovantes de recebimento (usado pelo financeiro, pela recepção e pelo compartilhar) ---------- */
+  App.lerComprovantesReceber = function (arquivos) {
+    var res = [];
+    return arquivos.reduce(function (p, a) {
+      return p.then(function () { return U.lerArquivo(a); })
+        .then(function (f) { return App.api('anexos.enviar', { tipo: 'comprovante', nome: f.nome, mime: f.mime, base64: f.base64 }); })
+        .then(function (an) { return App.api('financeiro.comprovante', { anexoId: an.id }); }).then(function (r) { res.push(r); });
+    }, Promise.resolve()).then(function () { return res; });
+  };
+
+  /* ---------- Recepção: registrar pagamento recebido ---------- */
+  var SIT_REC = { aguardando: ['Aguardando conferência', 's-azul'], confirmado: ['Confirmado', 's-ok'], descartado: ['Não confirmado', 's-ruim'] };
+  App.tela('recebimentos', {
+    titulo: 'Registrar pagamento', perfis: ['secretaria'],
+    render: function (ctx) {
+      return Promise.all([App.api('recebimentos.meus'), App.listaPacientes()]).then(function (r) {
+        var l = r[0], pacs = r[1];
+        var h = '<div class="alerta a-info">Informe aqui os pagamentos recebidos na recepção. A Flávia confere e confirma; até lá eles aparecem como “Aguardando conferência”.</div>' +
+          '<div class="grade-2">' +
+          '<section class="cartao"><h2>Recebi em dinheiro</h2><form class="form" data-form="dinheiro">' +
+          '<label class="campo todo">Paciente<select class="ent" name="pacienteId" required>' + U.opcoes(pacs.map(function (p) { return { v: p.id, t: p.nome + (p.responsavelNome ? ' — ' + p.responsavelNome : '') }; }), '', 'Escolha…') + '</select></label>' +
+          '<label class="campo">Valor recebido (R$)<input class="ent" name="valor" inputmode="decimal" required></label>' +
+          '<label class="campo">Data<input class="ent" type="date" name="data" required value="' + U.hoje() + '" max="' + U.hoje() + '"></label>' +
+          '<label class="campo todo">Observação (opcional)<input class="ent" name="observacao" placeholder="Ex.: entregue pela avó"></label>' +
+          '<div class="campo todo"><button class="btn pri" type="submit">Registrar dinheiro</button></div></form></section>' +
+          '<section class="cartao"><h2>Enviar comprovante</h2><div class="sub">Pix ou transferência: salve a imagem ou o PDF do comprovante e envie. O sistema identifica de quem é.</div>' +
+          '<div class="pilha" style="gap:10px;margin-top:8px"><input class="ent" type="file" id="arq-rec" accept="image/*,application/pdf" multiple><button class="btn ama" data-acao="enviar">Enviar comprovante</button></div><div id="res-rec"></div></section></div>' +
+          '<h2>O que eu informei</h2>';
+        if (!l.length) return h + '<div class="cartao vazio">Nada informado ainda.</div>';
+        return h + '<div class="tabela-caixa"><table class="tab"><thead><tr><th>Data</th><th>Paciente / responsável</th><th>Forma</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead><tbody>' + l.map(function (x) {
+          var st = SIT_REC[x.situacao] || [x.situacao, 's-neu'];
+          return '<tr><td>' + U.dataBr(x.data) + '</td><td>' + (x.identificado ? esc(x.identificado) : '<span class="sub">Não identificado (a Flávia confere)</span>') + '</td><td>' + (x.tipo === 'dinheiro' ? 'Dinheiro' : 'Comprovante') + (x.repetido ? ' <span class="selo s-ruim">Parece repetido</span>' : '') + '</td>' +
+            '<td class="num">' + (x.valor ? U.moeda(x.valor) : '—') + '</td><td><span class="selo ' + st[1] + '">' + st[0] + '</span></td><td>' + (x.comprovanteId ? '<button class="btn peq" data-acao="ver" data-id="' + x.comprovanteId + '">Ver</button>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+      });
+    },
+    acoes: {
+      dinheiro: function (f, ev, ctx) {
+        var d = U.dadosForm(f); d.valor = U.lerNum(d.valor);
+        if (!(d.valor > 0)) { App.toast('Informe o valor recebido.', 'erro'); return; }
+        return App.chamar('recebimentos.dinheiro', d, 'Registrado. A Flávia vai conferir.').then(function (r) { if (r) ctx.recarregar(); });
+      },
+      enviar: function (el, ev, ctx) {
+        var arqs = Array.prototype.slice.call(document.getElementById('arq-rec').files);
+        if (!arqs.length) { App.toast('Escolha o comprovante.', 'erro'); return; }
+        el.disabled = true; el.textContent = 'Lendo…';
+        App.lerComprovantesReceber(arqs).then(function (res) {
+          App.toast(res.length + ' comprovante(s) enviado(s). A Flávia vai conferir.', 'ok'); ctx.recarregar();
+        }, function (e) { App.toast(e.message, 'erro'); el.disabled = false; el.textContent = 'Enviar comprovante'; });
+      },
+      ver: function (el) { App.api('anexos.baixar', { id: el.getAttribute('data-id') }).then(function (a) { U.abrir(a.mime, a.base64); }, function (e) { App.toast(e.message, 'erro'); }); }
+    }
+  });
+
+  /* ---------- Arquivo compartilhado de outro app (ex.: app do banco no Android) ---------- */
+  App.tela('compartilhado', {
+    titulo: 'Comprovante recebido', perfis: ['admin', 'financeiro', 'secretaria'],
+    render: function (ctx) {
+      if (!('caches' in window)) return '<div class="cartao vazio">Este aparelho não guardou o arquivo. Envie pelo menu Comprovantes.</div>';
+      return caches.open('giraosol-compartilhado').then(function (c) {
+        return c.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return c.match(k).then(function (r) { return r.blob().then(function (b) { return new File([b], decodeURIComponent(r.headers.get('X-Nome') || 'comprovante'), { type: b.type }); }); }); })); });
+      }).then(function (arqs) {
+        ctx.dados.arqs = arqs;
+        if (!arqs.length) return '<div class="cartao vazio">Nenhum arquivo recebido. Compartilhe o comprovante de novo a partir do app do banco.</div>';
+        var fin = App.ehFin();
+        return '<section class="cartao"><h2>' + arqs.length + ' arquivo(s) recebido(s)</h2><div class="sub">' + arqs.map(function (a) { return esc(a.name); }).join('<br>') + '</div></section>' +
+          '<section class="cartao"><h2>Este comprovante é de…</h2><div class="pilha" style="gap:10px">' +
+          (fin ? '<button class="btn pri" data-acao="destino" data-d="pagar" style="min-height:52px">Uma conta que a clínica pagou</button>' : '') +
+          '<button class="btn ' + (fin ? '' : 'pri') + '" data-acao="destino" data-d="receber" style="min-height:52px">Um pagamento recebido de paciente</button>' +
+          '<button class="btn" data-acao="destino" data-d="nada">Cancelar</button></div><div class="sub" style="margin-top:8px">O sistema lê o comprovante e deixa como pré-baixa para conferência. Nada recebe baixa sozinho.</div></section>';
+      });
+    },
+    acoes: {
+      destino: function (el, ev, ctx) {
+        var d = el.getAttribute('data-d'), limpar = function () { return caches.delete('giraosol-compartilhado'); };
+        if (d === 'nada') { limpar().then(function () { location.hash = '#/' + App.inicial(); }); return; }
+        el.parentNode.querySelectorAll('button').forEach(function (b) { b.disabled = true; }); el.textContent = 'Lendo…';
+        var ir = d === 'pagar' ? App.lerComprovantesPagar(ctx.dados.arqs) : App.lerComprovantesReceber(ctx.dados.arqs);
+        ir.then(limpar).then(function () {
+          App.toast('Comprovante lido. Confira a pré-baixa.', 'ok');
+          location.hash = d === 'pagar' ? '#/pagar/comprovantes' : (App.ehFin() ? '#/financeiro/comprovantes' : '#/recebimentos');
+        }, function (e) { App.toast(e.message, 'erro'); ctx.recarregar(); });
+      }
     }
   });
 })();

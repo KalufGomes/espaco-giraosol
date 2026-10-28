@@ -5,7 +5,7 @@
   var FIN = ['admin', 'financeiro'];
 
   function abas(atual) {
-    return '<nav class="abas">' + [['pagar', 'Contas'], ['pagar/fornecedores', 'Fornecedores e categorias'], ['pagar/recorrentes', 'Contas fixas do mês'], ['pagar/escritorio', 'Planilha do escritório']].map(function (a) {
+    return '<nav class="abas">' + [['pagar', 'Contas'], ['pagar/fornecedores', 'Fornecedores e categorias'], ['pagar/recorrentes', 'Contas fixas do mês'], ['pagar/comprovantes', 'Comprovantes'], ['pagar/escritorio', 'Planilha do escritório']].map(function (a) {
       return '<a class="' + (a[0] === atual ? 'ativo' : '') + '" href="#/' + a[0] + '">' + a[1] + '</a>';
     }).join('') + '</nav>';
   }
@@ -185,6 +185,56 @@
           document.getElementById('res-planilha').innerHTML = h;
         }, function (e) { el.disabled = false; el.textContent = 'Gerar planilha (Excel)'; App.toast(e.message, 'erro'); });
       }
+    }
+  });
+  /* ---------- Comprovantes de contas pagas (pré-baixa) ---------- */
+  App.lerComprovantesPagar = function (arquivos) {
+    return arquivos.reduce(function (p, a) {
+      return p.then(function () { return U.lerArquivo(a); })
+        .then(function (f) { return App.api('anexos.enviar', { tipo: 'conta', nome: f.nome, mime: f.mime, base64: f.base64 }); })
+        .then(function (an) { return App.api('pagar.comprovante', { anexoId: an.id }); });
+    }, Promise.resolve());
+  };
+  App.tela('pagar/comprovantes', {
+    titulo: 'Comprovantes de contas pagas', menu: 'pagar', perfis: FIN,
+    render: function (ctx) {
+      return Promise.all([App.api('pagar.pre_baixas'), carregarBase()]).then(function (r) {
+        var l = r[0]; ctx.dados.l = l; ctx.dados.forn = r[1][0]; ctx.dados.cats = r[1][1];
+        var h = abas('pagar/comprovantes') + '<section class="cartao"><h2>Enviar comprovantes</h2><div class="sub">Envie o comprovante do pagamento (imagem ou PDF). No celular, dá para compartilhar direto do app do banco para o Espaço Giraosol. O sistema lê valor, data e quem recebeu e procura a conta em aberto. A baixa só vale depois da conferência.</div>' +
+          '<div class="linha"><input class="ent" type="file" id="arq-pagar" accept="image/*,application/pdf" multiple style="max-width:420px"><button class="btn ama" data-acao="enviar">Ler comprovantes</button></div></section>';
+        if (!l.length) return h + '<div class="cartao vazio">Nenhum comprovante aguardando conferência.</div>';
+        return h + '<h2>Aguardando conferência (' + l.length + ')</h2>' + l.map(function (p, i) {
+          var x = p.leituraJson || {}, sug = x.sugestoes || [];
+          return '<section class="cartao"><div class="linha entre"><div><b>' + (p.valor ? U.moeda(p.valor) : 'Valor não lido') + '</b> · ' + U.dataBr(p.data) +
+            (x.leu === false ? ' <span class="selo s-esp">Não consegui ler o texto</span>' : '') + (p.repetido ? ' <span class="selo s-ruim">Parece repetido</span>' : '') +
+            '<div class="sub peq">Enviado por ' + esc(p.enviadoPor || '') + ' em ' + U.dataBr(p.criadoEm) + '</div></div><button class="btn peq" data-acao="ver" data-id="' + p.anexoId + '">Ver comprovante</button></div>' +
+            '<form class="form" data-form="confirmar" data-i="' + i + '"><label class="campo todo">Conta em aberto<select class="ent" name="contaId" data-muda="trocaConta" data-i="' + i + '">' +
+            U.opcoes(sug.map(function (c) { return { v: c.contaId, t: c.fornecedor + ' · ' + c.descricao + (c.parcela && c.parcela !== 'Única' ? ' (' + c.parcela + ')' : '') + ' · vence ' + U.dataBr(c.vencimento) + ' · ' + U.moeda(c.valor) }; }), p.contaId, 'Nenhuma destas: lançar a conta já paga') + '</select></label>' +
+            '<div class="form campo todo' + (p.contaId ? ' oculto' : '') + '" id="nova-' + i + '" style="padding:0"><label class="campo">Fornecedor<select class="ent" name="fornecedorId">' + U.opcoes(ctx.dados.forn.map(function (f) { return { v: f.id, t: f.nome }; }), x.fornecedorSugeridoId || '', 'Escolha…') + '</select></label>' +
+            '<label class="campo">Categoria<select class="ent" name="categoriaId">' + U.opcoes(ctx.dados.cats.map(function (c) { return { v: c.id, t: c.nome }; }), '', 'A do fornecedor') + '</select></label>' +
+            '<label class="campo">Descrição<input class="ent" name="descricao" placeholder="Ex.: material de escritório"></label></div>' +
+            '<label class="campo">Valor pago (R$)<input class="ent" name="valor" inputmode="decimal" required value="' + (p.valor ? U.num(p.valor) : '') + '"></label>' +
+            '<label class="campo">Data do pagamento<input class="ent" type="date" name="data" required value="' + p.data + '"></label>' +
+            '<div class="campo todo"><div class="linha"><button class="btn pri" type="submit">Confirmar baixa</button><button class="btn perigo" type="button" data-acao="descartar" data-id="' + p.id + '">Descartar</button></div></div></form></section>';
+        }).join('');
+      });
+    },
+    acoes: {
+      enviar: function (el, ev, ctx) {
+        var arqs = Array.prototype.slice.call(document.getElementById('arq-pagar').files);
+        if (!arqs.length) { App.toast('Escolha o(s) arquivo(s).', 'erro'); return; }
+        el.disabled = true; el.textContent = 'Lendo…';
+        App.lerComprovantesPagar(arqs).then(function () { App.toast('Comprovante(s) lido(s). Confira abaixo.', 'ok'); ctx.recarregar(); }, function (e) { App.toast(e.message, 'erro'); el.disabled = false; el.textContent = 'Ler comprovantes'; });
+      },
+      trocaConta: function (el) { document.getElementById('nova-' + el.getAttribute('data-i')).classList.toggle('oculto', !!el.value); },
+      confirmar: function (f, ev, ctx) {
+        var p = ctx.dados.l[Number(f.getAttribute('data-i'))], d = U.dadosForm(f);
+        var dados = { id: p.id, contaId: d.contaId || '', valor: U.lerNum(d.valor), data: d.data };
+        if (!d.contaId) { if (!d.fornecedorId) { App.toast('Escolha a conta em aberto ou o fornecedor.', 'erro'); return; } dados.fornecedorId = d.fornecedorId; dados.categoriaId = d.categoriaId; dados.descricao = d.descricao; }
+        return App.chamar('pagar.pre_baixa_confirmar', dados, 'Baixa confirmada.').then(function (r) { if (r) ctx.recarregar(); });
+      },
+      descartar: function (el, ev, ctx) { App.confirmar('Descartar este comprovante?', { botao: 'Descartar', perigo: true }).then(function (ok) { if (ok) App.chamar('pagar.pre_baixa_descartar', { id: el.getAttribute('data-id') }, 'Descartado.').then(function (r) { if (r) ctx.recarregar(); }); }); },
+      ver: function (el) { App.api('anexos.baixar', { id: el.getAttribute('data-id') }).then(function (a) { U.abrir(a.mime, a.base64); }, function (e) { App.toast(e.message, 'erro'); }); }
     }
   });
 })();
