@@ -185,3 +185,12 @@ table.tab { width: 100%; border-collapse: collapse; }
   .lateral, .topo, .nav-baixo, .toasts, .nao-imprimir { display: none !important; }
   body { background: #fff; }
 }
+
+/* Olhinho da senha */
+.senha-caixa { position: relative; display: block; width: 100%; }
+.senha-caixa .ent { padding-right: 46px; }
+.senha-caixa .olho { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; border: 0; background: none; color: var(--cinza); display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 8px; }
+.senha-caixa .olho:hover, .senha-caixa .olho:focus-visible { color: var(--verde-esc, #3F5626); background: rgba(0,0,0,.05); }
+
+/* Duas colunas que viram uma no celular */
+.grade-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
