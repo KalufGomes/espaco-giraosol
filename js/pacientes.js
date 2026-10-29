@@ -37,7 +37,7 @@
     if (!l.length) return '<tr><td colspan="5" class="vazio">Nenhum paciente encontrado.</td></tr>';
     return l.map(function (p) {
       return '<tr class="clic" data-acao="abrir" data-id="' + p.id + '"><td class="b">' + esc(p.nome) + '</td><td>' + esc(p.responsavelNome || '—') + '</td><td>' + esc(p.telefone || '—') + '</td>' +
-        (fin ? '<td class="num">' + U.moeda(p.valorSessao) + (p.modalidade === 'sessao' ? ' <span class="selo s-azul">por sessão</span>' : '') + '</td><td>' + (p.valoresConfirmados ? '<span class="selo s-ok">Conferidos</span>' : '<span class="selo s-esp">Conferir</span>') + '</td>' : '') + '</tr>';
+        (fin ? '<td class="num">' + U.moeda(p.valorSessao) + (p.proximoValor ? '<div class="sub peq">' + U.moeda(p.proximoValor.valorSessao) + ' a partir de ' + U.dataBr(p.proximoValor.vigenciaInicio) + '</div>' : '') + (p.modalidade === 'sessao' ? ' <span class="selo s-azul">por sessão</span>' : '') + '</td><td>' + (p.valoresConfirmados ? '<span class="selo s-ok">Conferidos</span>' : '<span class="selo s-esp">Conferir</span>') + '</td>' : '') + '</tr>';
     }).join('');
   }
 
@@ -114,7 +114,7 @@
       /* Financeiro */
       valores: function (f, ev, ctx) {
         var d = U.dadosForm(f);
-        return App.chamar('pacientes.valores', { pacienteId: ctx.id, valorSessao: U.lerNum(d.valorSessao), valorAnamnese: U.lerNum(d.valorAnamnese), vigenciaInicio: d.vigenciaInicio }, 'Valores salvos.').then(function (r) { if (r) ctx.recarregar(); });
+        return App.chamar('pacientes.valores', { pacienteId: ctx.id, valorSessao: U.lerNum(d.valorSessao), valorAnamnese: U.lerNum(d.valorAnamnese), vigenciaInicio: d.vigenciaInicio }, 'Valores salvos: valem a partir de ' + U.dataBr(d.vigenciaInicio) + '.').then(function (r) { if (r) ctx.recarregar(); });
       },
       confirmarValores: function (el, ev, ctx) { App.chamar('pacientes.confirmar_valores', { pacienteId: ctx.id }, 'Valores conferidos.').then(function (r) { if (r) ctx.recarregar(); }); },
       avulso: function (f, ev, ctx) {
@@ -200,7 +200,7 @@
   }
 
   /* ---------- Planos ---------- */
-  function textoDias(dias) { return (dias || []).map(function (d) { return U.DIAS_C[d.dia] + ' ' + d.hora; }).join(' · '); }
+  function textoDias(dias) { return (dias || []).map(function (d) { return U.DIAS_C[d.dia] + ' ' + d.hora + (d.dupla ? ' (dupla)' : ''); }).join(' · '); }
   function abaPlanos(p) {
     var h = '<div class="linha"><button class="btn ama" data-acao="novoPlano">' + I('mais', 18) + 'Novo plano de atendimento</button><button class="btn" data-acao="agendarAvulso">Agendar sessão avulsa ou anamnese</button></div>';
     if (!p.planos.length) return h + '<div class="cartao vazio">Nenhum plano ainda. Cadastre a terapia, a profissional, os dias e os horários: a agenda é gerada a partir daqui.</div>';
@@ -214,7 +214,7 @@
   }
   function formPlano(ctx, pl) {
     pl = pl || { diasJson: [], inicio: U.hoje() };
-    var dias = {}; (pl.diasJson || []).forEach(function (d) { dias[d.dia] = d.hora; });
+    var dias = {}, duplas = {}; (pl.diasJson || []).forEach(function (d) { dias[d.dia] = d.hora; if (d.dupla) duplas[d.dia] = 1; });
     var profs = App.profissionais().filter(function (x) { return x.ativo; });
     var m = App.modal({ titulo: pl.id ? 'Alterar horário' : 'Novo plano de atendimento', corpo: '<form class="form" data-form="salvarPlano">' +
       '<label class="campo">Profissional<select class="ent" name="profissionalId" required data-muda="profPlano">' + U.opcoes(profs.map(function (x) { return { v: x.id, t: x.nome + ' · ' + x.especialidade }; }), pl.profissionalId, 'Escolha…') + '</select></label>' +
@@ -222,14 +222,14 @@
       '<label class="campo">' + (pl.id ? 'Novo horário vale a partir de' : 'Início') + '<input class="ent" type="date" name="inicio" required value="' + (pl.id ? U.hoje() : pl.inicio) + '"></label>' +
       '<label class="campo">Fim (opcional)<input class="ent" type="date" name="fim" value="' + esc(pl.fim || '') + '"></label>' +
       '<fieldset class="campo todo"><legend>Dias da semana e horário (sessões de 45 min)</legend><div class="form" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">' +
-      [1, 2, 3, 4, 5, 6].map(function (d) { return '<div class="pilha" style="gap:4px"><label class="marcar"><input type="checkbox" name="d' + d + '"' + (dias[d] ? ' checked' : '') + '>' + U.DIAS[d] + '</label><input class="ent" type="time" step="900" name="h' + d + '" value="' + (dias[d] || '') + '" aria-label="Horário de ' + U.DIAS[d] + '"></div>'; }).join('') +
+      [1, 2, 3, 4, 5, 6].map(function (d) { return '<div class="pilha" style="gap:4px"><label class="marcar"><input type="checkbox" name="d' + d + '"' + (dias[d] ? ' checked' : '') + '>' + U.DIAS[d] + '</label><input class="ent" type="time" step="900" name="h' + d + '" value="' + (dias[d] || '') + '" aria-label="Horário de ' + U.DIAS[d] + '"><label class="marcar peq" title="Divide o horário com outro paciente da mesma profissional"><input type="checkbox" name="u' + d + '"' + (duplas[d] ? ' checked' : '') + '>Em dupla</label></div>'; }).join('') +
       '</div></fieldset>' + (pl.id ? '<div class="campo todo"><div class="alerta a-aviso">As sessões já registradas não mudam. As futuras passam para o novo horário.</div></div>' : '') +
       '<div class="campo todo"><button class="btn pri" type="submit">Salvar plano</button></div></form>',
       acoes: {
         profPlano: function (el) { var t = m.el.querySelector('[name=terapia]'); var pr = App.prof(el.value); if (pr && !t.value) t.value = pr.especialidade; },
         salvarPlano: function (f) {
           var d = U.dadosForm(f), diasJ = [];
-          for (var i = 1; i <= 6; i++) if (d['d' + i]) { if (!d['h' + i]) { App.toast('Informe o horário de ' + U.DIAS[i] + '.', 'erro'); return; } diasJ.push({ dia: i, hora: d['h' + i] }); }
+          for (var i = 1; i <= 6; i++) if (d['d' + i]) { if (!d['h' + i]) { App.toast('Informe o horário de ' + U.DIAS[i] + '.', 'erro'); return; } diasJ.push(d['u' + i] ? { dia: i, hora: d['h' + i], dupla: true } : { dia: i, hora: d['h' + i] }); }
           var dados = { id: pl.id, pacienteId: ctx.id, profissionalId: d.profissionalId, terapia: d.terapia, inicio: d.inicio, fim: d.fim, diasJson: diasJ };
           if (pl.id) { dados.inicio = pl.inicio; dados.aPartirDe = d.inicio; }
           var enviar = function (conf) {
@@ -249,12 +249,13 @@
 
   /* ---------- Financeiro do paciente ---------- */
   function abaFinanceiro(p, avulsos, cobs) {
-    var v = p.valores;
-    var h = '<div class="grade-cartoes"><div class="kpi"><span class="r">Valor da sessão</span><span class="v">' + U.moeda(v.valorSessao) + '</span></div><div class="kpi"><span class="r">Anamnese</span><span class="v">' + U.moeda(v.valorAnamnese) + '</span></div>' +
+    var v = p.valores, px = v.proximo;
+    var h = '<div class="grade-cartoes"><div class="kpi"><span class="r">Valor da sessão hoje</span><span class="v">' + U.moeda(v.valorSessao) + '</span>' + (px ? '<span class="sub"><b>' + U.moeda(px.valorSessao) + '</b> a partir de ' + U.dataBr(px.vigenciaInicio) + '</span>' : '') + '</div>' +
+      '<div class="kpi"><span class="r">Anamnese hoje</span><span class="v">' + U.moeda(v.valorAnamnese) + '</span>' + (px ? '<span class="sub"><b>' + U.moeda(px.valorAnamnese) + '</b> a partir de ' + U.dataBr(px.vigenciaInicio) + '</span>' : '') + '</div>' +
       '<div class="kpi"><span class="r">Vencimento</span><span class="v">Dia ' + esc(p.diaVencimento || 10) + '</span><span class="sub">' + (p.modalidade === 'sessao' ? 'Paga por sessão' : 'Mensal') + '</span></div></div>';
     if (!v.confirmado) h += '<div class="alerta a-aviso linha entre"><div style="flex:1">Os valores deste paciente ainda não foram conferidos.</div><button class="btn peq cont" data-acao="confirmarValores">Conferi, estão certos</button></div>';
-    h += '<section class="cartao"><h2>Alterar valores</h2><form class="form" data-form="valores"><label class="campo">Sessão (R$)<input class="ent" name="valorSessao" inputmode="decimal" required value="' + U.num(v.valorSessao) + '"></label>' +
-      '<label class="campo">Anamnese (R$)<input class="ent" name="valorAnamnese" inputmode="decimal" required value="' + U.num(v.valorAnamnese) + '"></label><label class="campo">Vale a partir de<input class="ent" type="date" name="vigenciaInicio" required value="' + U.comp() + '-01"></label>' +
+    h += '<section class="cartao"><h2>Alterar valores</h2><form class="form" data-form="valores"><label class="campo">Sessão (R$)<input class="ent" name="valorSessao" inputmode="decimal" required value="' + U.num((px || v).valorSessao) + '"></label>' +
+      '<label class="campo">Anamnese (R$)<input class="ent" name="valorAnamnese" inputmode="decimal" required value="' + U.num((px || v).valorAnamnese) + '"></label><label class="campo">Vale a partir de<input class="ent" type="date" name="vigenciaInicio" required value="' + U.comp() + '-01"></label>' +
       '<div class="campo"><span>&nbsp;</span><button class="btn pri" type="submit">Salvar valores</button></div></form>' +
       (p.historicoValores.length > 1 ? '<details><summary class="sub">Histórico de valores</summary><table class="tab"><tbody>' + p.historicoValores.slice().reverse().map(function (x) { return '<tr><td>' + U.dataBr(x.vigenciaInicio) + '</td><td>Sessão ' + U.moeda(x.valorSessao) + '</td><td>Anamnese ' + U.moeda(x.valorAnamnese) + '</td></tr>'; }).join('') + '</tbody></table></details>' : '') + '</section>';
     h += '<section class="cartao"><h2>Serviços avulsos</h2>' + (avulsos.length ? '<table class="tab"><tbody>' + avulsos.map(function (a) { return '<tr><td>' + U.dataBr(a.data) + '</td><td>' + esc(a.descricao) + '</td><td class="num">' + U.moeda(a.valorCalculado) + '</td><td><button class="btn peq" data-acao="cancelarAvulso" data-id="' + a.id + '">Cancelar</button></td></tr>'; }).join('') + '</tbody></table>' : '') +

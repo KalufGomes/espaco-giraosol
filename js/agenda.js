@@ -41,6 +41,7 @@
           '<div class="seletor"><button class="btn" data-acao="abrirSeletor" aria-expanded="false">' + I('pacientes', 18) + 'Profissionais: ' + (sel.length === ativas().length ? 'todas' : sel.length) + '</button><div class="seletor-painel oculto" id="painel-prof"></div></div>' +
           '<span style="flex:1"></span>' +
           '<button class="btn" data-acao="bloqueios">Recesso e ausências</button>' +
+          '<button class="btn" data-acao="transferir">Transferir pacientes</button>' +
           '<button class="btn ama" data-acao="novo">' + I('mais', 18) + 'Novo agendamento</button></div>' +
           '<div class="linha entre"><div class="data" style="font-family:var(--f-titulo);font-size:20px;font-weight:600">' + rotulo + '</div>' +
           '<div class="sub">' + r.atendimentos.length + ' sessões · ' + (cont.realizada || 0) + ' realizadas · ' + (cont.agendada || 0) + ' aguardando registro</div></div>';
@@ -71,7 +72,8 @@
       },
       sessao: function (el, ev, ctx) { abrirSessao(ctx.dados.mapa[el.getAttribute('data-id')], ctx); },
       novo: function (el, ev, ctx) { novoAgendamento(ctx); },
-      bloqueios: function (el, ev, ctx) { abrirBloqueios(ctx); }
+      bloqueios: function (el, ev, ctx) { abrirBloqueios(ctx); },
+      transferir: function (el, ev, ctx) { abrirTransferencia(ctx); }
     }
   });
   function ir(d) { U.ls.set('agendaData', d); location.hash = '#/agenda?data=' + d; }
@@ -90,7 +92,7 @@
 
   function cartaoSessao(a, comProf) {
     return '<button class="sessao st-' + a.status + (a.decisao === 'pendente' ? ' decisao' : '') + '" data-acao="sessao" data-id="' + a.id + '" aria-label="' + esc(a.paciente + ', ' + a.hora + ', ' + ROT[a.status]) + '">' +
-      '<b>' + esc(a.paciente) + '</b><span>' + (comProf ? esc(a.profissional) + ' · ' : '') + esc(CURTO[a.status] || a.status) + (a.tipo === 'anamnese' ? ' · Anamnese' : '') + (a.decisao === 'pendente' ? ' · decidir' : '') + '</span></button>';
+      '<b>' + esc(a.paciente) + '</b><span>' + (comProf ? esc(a.profissional) + ' · ' : '') + esc(CURTO[a.status] || a.status) + (a.tipo === 'anamnese' ? ' · Anamnese' : '') + (a.dupla ? ' · dupla' : '') + (a.decisao === 'pendente' ? ' · decidir' : '') + '</span></button>';
   }
   function horarios(atend) {
     var s = {}; PADRAO.forEach(function (h) { s[h] = 1; }); atend.forEach(function (a) { s[a.hora] = 1; });
@@ -129,7 +131,7 @@
     var u = App.estado.usuario;
     var podeStatus = u.perfil !== 'profissional' || u.podeMarcarPresenca;
     if (a.fechado && !App.ehFin()) podeStatus = false;
-    var corpo = '<div class="linha entre" style="align-items:flex-start"><div><h3>' + esc(a.paciente) + '</h3><div class="sub">' + esc(a.profissional) + (a.tipo === 'anamnese' ? ' · Anamnese' : '') + '</div>' +
+    var corpo = '<div class="linha entre" style="align-items:flex-start"><div><h3>' + esc(a.paciente) + '</h3><div class="sub">' + esc(a.profissional) + (a.tipo === 'anamnese' ? ' · Anamnese' : '') + (a.dupla ? ' · Sessão em dupla' : '') + '</div>' +
       '<div class="sub">' + U.dataLonga(a.data) + ' · ' + a.hora + ' às ' + a.fim + '</div>' + (a.responsavel ? '<div class="sub">Responsável: ' + esc(a.responsavel) + '</div>' : '') + '</div>' +
       '<span class="selo ' + classeStatus(a.status) + '">' + esc(ROT[a.status]) + '</span></div>' +
       (a.justificativa ? '<div class="alerta a-info">' + esc(a.justificativa) + '</div>' : '') +
@@ -144,7 +146,7 @@
     }
     var podeCorrigir = a.status === 'agendada' && !a.fechado && u.perfil !== 'profissional';
     if (podeCorrigir) corpo += '<div class="linha" style="gap:8px;flex-wrap:wrap;margin-top:4px"><span class="sub">Lançou errado?</span>' +
-      '<button type="button" class="btn peq" data-acao="corrigir">Corrigir data, horário ou profissional</button>' +
+      '<button type="button" class="btn peq" data-acao="corrigir">Corrigir data, horário, profissional ou dupla</button>' +
       '<button type="button" class="btn peq perigo" data-acao="excluir">Excluir agendamento</button></div><div id="corrigir-caixa" class="pilha"></div>';
     var pe = '';
     if (a.whatsapp) pe += '<button class="btn zap" data-acao="_zap" data-url="' + esc(U.zapNumero(a.whatsapp)) + '">' + I('zap', 18) + 'WhatsApp</button>';
@@ -178,12 +180,13 @@
         var x = m.el.querySelector('#corrigir-caixa');
         x.innerHTML = '<div class="form"><label class="campo">Data<input class="ent" type="date" id="cor-data" value="' + a.data + '"></label>' +
           '<label class="campo">Horário<input class="ent" type="time" id="cor-hora" step="900" value="' + a.hora + '"></label>' +
-          '<label class="campo todo">Profissional<select class="ent" id="cor-prof">' + U.opcoes(ativas().map(function (p) { return { v: p.id, t: p.nome + ' · ' + p.especialidade }; }), a.profissionalId) + '</select></label></div>' +
+          '<label class="campo todo">Profissional<select class="ent" id="cor-prof">' + U.opcoes(ativas().map(function (p) { return { v: p.id, t: p.nome + ' · ' + p.especialidade }; }), a.profissionalId) + '</select></label>' +
+          '<label class="marcar campo todo"><input type="checkbox" id="cor-dupla"' + (a.dupla ? ' checked' : '') + '>Sessão em dupla</label></div>' +
           '<div class="sub peq">Use para acertar um lançamento errado. Se o paciente pediu para trocar o dia, use “Remarcada”.</div>' +
           '<button class="btn pri" data-acao="salvarCorrecao">Salvar correção</button>';
       },
       salvarCorrecao: function (el) {
-        var d = { id: a.id, data: m.el.querySelector('#cor-data').value, hora: m.el.querySelector('#cor-hora').value, profissionalId: m.el.querySelector('#cor-prof').value };
+        var d = { id: a.id, data: m.el.querySelector('#cor-data').value, hora: m.el.querySelector('#cor-hora').value, profissionalId: m.el.querySelector('#cor-prof').value, dupla: m.el.querySelector('#cor-dupla').checked };
         if (!d.data || !d.hora) { App.toast('Informe a data e o horário.', 'erro'); return; }
         el.disabled = true;
         App.api('agenda.corrigir', d).then(function () { App.toast('Agendamento corrigido. A profissional foi avisada.', 'ok'); m.fechar(); ctx.recarregar(); }, function (e) { App.toast(e.message, 'erro'); el.disabled = false; });
@@ -220,6 +223,7 @@
         '<label class="campo">Tipo<select class="ent" name="tipo"><option value="sessao">Sessão (fora do plano / reposição)</option><option value="anamnese">Anamnese (1ª consulta, com a Paula)</option></select></label>' +
         '<label class="campo">Data<input class="ent" type="date" name="data" required value="' + (ctx.dados.data || U.hoje()) + '"></label>' +
         '<label class="campo">Horário<input class="ent" type="time" name="hora" required step="900"></label>' +
+        '<label class="marcar campo todo"><input type="checkbox" name="dupla">Sessão em dupla (divide o horário com outro paciente desta profissional, também marcado em dupla)</label>' +
         '<label class="campo todo">Observação<input class="ent" name="observacao"></label>' +
         '<div class="campo todo"><div class="sub">Para atendimentos semanais, cadastre o plano no paciente: a agenda gera as sessões sozinha.</div></div>' +
         '<div class="campo todo"><button class="btn pri" type="submit">Agendar</button></div></form>',
@@ -229,6 +233,80 @@
     });
   }
   App.novoAgendamento = novoAgendamento;
+
+  /* ---------- Transferir pacientes (licença ou definitivo) ---------- */
+  function textoDias(dias) { return (dias || []).map(function (d) { return U.DIAS_C[d.dia] + ' ' + d.hora + (d.dupla ? ' (dupla)' : ''); }).join(' · '); }
+  function abrirTransferencia(ctx) {
+    var profs = ativas(), est = { planos: [] };
+    var opProf = function (sel, vazio, exceto) { return U.opcoes(profs.filter(function (p) { return p.id !== exceto; }).map(function (p) { return { v: p.id, t: p.nome + ' · ' + p.especialidade }; }), sel, vazio); };
+    var m = App.modal({ titulo: 'Transferir pacientes', largo: true, corpo:
+      '<div class="form"><label class="campo">Profissional que vai sair<select class="ent" id="tr-de" data-muda="carregar">' + opProf('', 'Escolha…') + '</select></label>' +
+      '<div class="campo"><span>Tipo</span><div class="linha"><label class="marcar"><input type="radio" name="tr-tipo" value="licenca" checked data-muda="tipo">Licença (volta depois)</label><label class="marcar"><input type="radio" name="tr-tipo" value="definitivo" data-muda="tipo">Definitivo</label></div></div>' +
+      '<label class="campo">A partir de<input class="ent" type="date" id="tr-ini" value="' + U.hoje() + '"></label><label class="campo" id="tr-fim-c">Até (último dia da licença)<input class="ent" type="date" id="tr-fim"></label></div>' +
+      '<div id="tr-lista"></div><div id="tr-res"></div><div id="tr-lic"></div>',
+      acoes: {
+        tipo: function () { m.el.querySelector('#tr-fim-c').classList.toggle('oculto', tipo() !== 'licenca'); },
+        carregar: function (el) {
+          var de = el.value, box = m.el.querySelector('#tr-lista'); m.el.querySelector('#tr-res').innerHTML = '';
+          if (!de) { box.innerHTML = ''; return; }
+          box.innerHTML = '<div class="sub">Carregando…</div>';
+          App.api('agenda.planos_profissional', { profissionalId: de }).then(function (l) {
+            est.planos = l;
+            if (!l.length) { box.innerHTML = '<div class="cartao vazio">Ela não tem pacientes com plano ativo.</div>'; return; }
+            box.innerHTML = '<div class="linha" style="margin:12px 0 8px"><b>' + l.length + ' paciente(s)</b><span style="flex:1"></span><select class="ent" id="tr-todos" style="width:auto">' + opProf('', 'Mandar todos para…', de) + '</select><button class="btn peq" data-acao="todos">Aplicar</button></div>' +
+              '<div class="tabela-caixa"><table class="tab"><thead><tr><th style="width:36px"></th><th>Paciente</th><th>Dias e horários</th><th>Vai para</th></tr></thead><tbody>' + l.map(function (p, i) {
+                return '<tr><td><input type="checkbox" class="tr-sel" data-i="' + i + '" checked aria-label="Transferir ' + esc(p.paciente) + '" style="width:19px;height:19px"></td><td class="b">' + esc(p.paciente) + '</td><td class="peq">' + textoDias(p.diasJson) + '</td>' +
+                  '<td><select class="ent tr-para" data-i="' + i + '">' + opProf('', 'Escolha…', de) + '</select></td></tr>';
+              }).join('') + '</tbody></table></div>' +
+              '<div class="linha fim" style="margin-top:12px"><button class="btn pri" data-acao="previa">Ver prévia</button></div>';
+          }, function (e) { box.innerHTML = '<div class="alerta a-erro">' + esc(e.message) + '</div>'; });
+        },
+        todos: function () { var v = m.el.querySelector('#tr-todos').value; if (!v) { App.toast('Escolha a profissional.', 'erro'); return; } m.el.querySelectorAll('.tr-para').forEach(function (s) { s.value = v; }); },
+        previa: function (el) { enviar(true, el); },
+        confirmar: function (el) { enviar(false, el); },
+        encerrar: function (el) {
+          var id = el.getAttribute('data-id'), volta = m.el.querySelector('#volta-' + id).value;
+          if (!volta) { App.toast('Informe o dia da volta.', 'erro'); return; }
+          App.chamar('agenda.licenca_encerrar', { id: id, volta: volta }).then(function (r) {
+            if (!r) return; App.toast(r.voltaram + ' sessão(ões) voltaram para a titular.' + (r.problemas.length ? ' ' + r.problemas.length + ' ficaram com a substituta por choque de horário.' : ''), r.problemas.length ? 'erro' : 'ok'); licencas(); if (ctx.recarregar) ctx.recarregar();
+          });
+        }
+      } });
+    function tipo() { var r = m.el.querySelector('[name=tr-tipo]:checked'); return r ? r.value : 'licenca'; }
+    function enviar(simular, btn) {
+      var itens = [];
+      m.el.querySelectorAll('.tr-sel').forEach(function (c) {
+        if (!c.checked) return; var i = Number(c.getAttribute('data-i'));
+        itens.push({ planoId: est.planos[i].id, paraProfissionalId: m.el.querySelector('.tr-para[data-i="' + i + '"]').value });
+      });
+      if (!itens.length) { App.toast('Marque pelo menos um paciente.', 'erro'); return; }
+      if (itens.some(function (x) { return !x.paraProfissionalId; })) { App.toast('Escolha para quem vai cada paciente marcado.', 'erro'); return; }
+      var d = { deProfissionalId: m.el.querySelector('#tr-de').value, tipo: tipo(), inicio: m.el.querySelector('#tr-ini').value, fim: m.el.querySelector('#tr-fim').value, itens: itens, simular: simular };
+      btn.disabled = true;
+      App.api('agenda.transferir', d).then(function (r) {
+        btn.disabled = false;
+        var ficam = r.itens.reduce(function (t, x) { return t + x.problemas.length; }, 0), vao = r.itens.reduce(function (t, x) { return t + x.movidas; }, 0);
+        var h = '<section class="cartao" style="margin-top:12px"><h2>' + (simular ? 'Prévia' : 'Transferência feita') + '</h2><div class="sub">' + vao + ' sessão(ões) ' + (simular ? 'vão' : 'foram') + ' para a nova profissional' + (ficam ? '; ' + ficam + ' ficam com a titular para resolver' : '') + '.' + (r.tipo === 'licenca' ? ' Sessões criadas depois, dentro do período, também vão para a substituta.' : ' O plano passa para a nova profissional.') + '</div>' +
+          '<table class="tab"><thead><tr><th>Paciente</th><th>Vai para</th><th class="num">Sessões</th><th>Não cabem</th></tr></thead><tbody>' + r.itens.map(function (x) {
+            return '<tr><td class="b">' + esc(x.paciente) + '</td><td>' + esc(x.para) + '</td><td class="num">' + x.movidas + ' de ' + x.sessoes + '</td><td class="peq">' + (x.problemas.length ? x.problemas.map(function (p) { return U.dataBr(p.data).slice(0, 5) + ' ' + p.hora + ': ' + esc(p.motivo); }).join('<br>') : '—') + '</td></tr>';
+          }).join('') + '</tbody></table>' +
+          (ficam ? '<div class="alerta a-aviso">As sessões que não cabem continuam com a profissional que vai sair. Depois, abra cada uma na agenda e use “Corrigir” para escolher outro horário ou profissional.</div>' : '') +
+          (simular ? '<div class="linha fim"><button class="btn pri" data-acao="confirmar">Confirmar transferência</button></div>' : '') + '</section>';
+        m.el.querySelector('#tr-res').innerHTML = h;
+        if (!simular) { App.toast('Transferência feita. As profissionais foram avisadas.', 'ok'); m.el.querySelector('#tr-lista').innerHTML = ''; licencas(); if (ctx.recarregar) ctx.recarregar(); }
+      }, function (e) { btn.disabled = false; App.toast(e.message, 'erro'); });
+    }
+    function licencas() {
+      App.api('agenda.licencas').then(function (l) {
+        m.el.querySelector('#tr-lic').innerHTML = !l.length ? '' : '<section class="cartao" style="margin-top:12px"><h2>Licenças em andamento</h2><div class="tabela-caixa"><table class="tab"><thead><tr><th>Paciente</th><th>De</th><th>Para</th><th>Período</th><th>Voltou antes?</th></tr></thead><tbody>' + l.map(function (x) {
+          return '<tr><td class="b">' + esc(x.paciente) + '</td><td>' + esc(x.de) + '</td><td>' + esc(x.para) + '</td><td>' + U.dataBr(x.inicio) + ' a ' + U.dataBr(x.fim) + '</td>' +
+            '<td><div class="linha" style="flex-wrap:nowrap"><input class="ent" type="date" id="volta-' + x.id + '" value="' + U.hoje() + '" style="width:auto"><button class="btn peq" data-acao="encerrar" data-id="' + x.id + '">Encerrar licença</button></div></td></tr>';
+        }).join('') + '</tbody></table></div></section>';
+      }).catch(function () { });
+    }
+    licencas();
+  }
+  App.abrirTransferencia = abrirTransferencia;
 
   /* ---------- Recesso e ausências ---------- */
   App.abrirBloqueios = function (ctx) { return abrirBloqueios(ctx); };
@@ -267,7 +345,7 @@
         var ativosDia = doDia.filter(function (a) { return a.status !== 'remarcada' && a.status !== 'cancelada_aviso' && a.status !== 'cancelada_clinica'; });
         h += '<div class="alerta a-aviso">' + (ativosDia.length ? 'Você tem <b>' + ativosDia.length + ' atendimento' + (ativosDia.length > 1 ? 's' : '') + '</b> neste dia.' : 'Nenhum atendimento neste dia.') + '</div>';
         h += '<div class="lista-dia">' + doDia.map(function (a) {
-          return '<button class="dia-sessao" data-acao="ver" data-id="' + a.id + '"><span class="h">' + a.hora + '<br><small style="font-weight:400">45 min</small></span><span style="flex:1;min-width:0"><b style="font-size:16px">' + esc(a.paciente) + '</b><br><span class="selo ' + classeStatus(a.status) + '" style="margin-top:4px">' + esc(ROT[a.status]) + (a.tipo === 'anamnese' ? ' · Anamnese' : '') + '</span></span></button>';
+          return '<button class="dia-sessao" data-acao="ver" data-id="' + a.id + '"><span class="h">' + a.hora + '<br><small style="font-weight:400">45 min</small></span><span style="flex:1;min-width:0"><b style="font-size:16px">' + esc(a.paciente) + '</b><br><span class="selo ' + classeStatus(a.status) + '" style="margin-top:4px">' + esc(ROT[a.status]) + (a.tipo === 'anamnese' ? ' · Anamnese' : '') + (a.dupla ? ' · em dupla' : '') + '</span></span></button>';
         }).join('') + '</div>';
         if (prox.length) h += '<h3>Próximos dias</h3><div class="cartao plano">' + prox.map(function (a) { return '<div class="aviso-item"><div style="flex:1"><b>' + U.DIAS_C[U.diaSemana(a.data)] + ' ' + U.dataBr(a.data).slice(0, 5) + '</b> · ' + a.hora + '</div><div>' + esc(a.paciente) + '</div></div>'; }).join('') + '</div>';
         return h;

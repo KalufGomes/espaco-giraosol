@@ -308,12 +308,12 @@
   });
 
   /* ---------- Comprovantes de recebimento (usado pelo financeiro, pela recepção e pelo compartilhar) ---------- */
-  App.lerComprovantesReceber = function (arquivos) {
+  App.lerComprovantesReceber = function (arquivos, pacienteId) {
     var res = [];
     return arquivos.reduce(function (p, a) {
       return p.then(function () { return U.lerArquivo(a); })
         .then(function (f) { return App.api('anexos.enviar', { tipo: 'comprovante', nome: f.nome, mime: f.mime, base64: f.base64 }); })
-        .then(function (an) { return App.api('financeiro.comprovante', { anexoId: an.id }); }).then(function (r) { res.push(r); });
+        .then(function (an) { return App.api('financeiro.comprovante', { anexoId: an.id, pacienteId: pacienteId || '' }); }).then(function (r) { res.push(r); });
     }, Promise.resolve()).then(function () { return res; });
   };
 
@@ -332,8 +332,9 @@
           '<label class="campo">Data<input class="ent" type="date" name="data" required value="' + U.hoje() + '" max="' + U.hoje() + '"></label>' +
           '<label class="campo todo">Observação (opcional)<input class="ent" name="observacao" placeholder="Ex.: entregue pela avó"></label>' +
           '<div class="campo todo"><button class="btn pri" type="submit">Registrar dinheiro</button></div></form></section>' +
-          '<section class="cartao"><h2>Enviar comprovante</h2><div class="sub">Pix ou transferência: salve a imagem ou o PDF do comprovante e envie. O sistema identifica de quem é.</div>' +
-          '<div class="pilha" style="gap:10px;margin-top:8px"><input class="ent" type="file" id="arq-rec" accept="image/*,application/pdf" multiple><button class="btn ama" data-acao="enviar">Enviar comprovante</button></div><div id="res-rec"></div></section></div>' +
+          '<section class="cartao"><h2>Enviar comprovante</h2><div class="sub">Pix ou transferência: escolha o paciente, salve a imagem ou o PDF do comprovante e envie.</div>' +
+          '<div class="pilha" style="gap:10px;margin-top:8px"><label class="campo">Paciente<select class="ent" id="pac-rec">' + U.opcoes(pacs.map(function (p) { return { v: p.id, t: p.nome + (p.responsavelNome ? ' — ' + p.responsavelNome : '') }; }), '', 'Não sei / o sistema identifica') + '</select></label>' +
+          '<label class="campo">Comprovante<input class="ent" type="file" id="arq-rec" accept="image/*,application/pdf" multiple></label><button class="btn ama" data-acao="enviar">Enviar comprovante</button></div><div id="res-rec"></div></section></div>' +
           '<h2>O que eu informei</h2>';
         if (!l.length) return h + '<div class="cartao vazio">Nada informado ainda.</div>';
         return h + '<div class="tabela-caixa"><table class="tab"><thead><tr><th>Data</th><th>Paciente / responsável</th><th>Forma</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead><tbody>' + l.map(function (x) {
@@ -353,7 +354,7 @@
         var arqs = Array.prototype.slice.call(document.getElementById('arq-rec').files);
         if (!arqs.length) { App.toast('Escolha o comprovante.', 'erro'); return; }
         el.disabled = true; el.textContent = 'Lendo…';
-        App.lerComprovantesReceber(arqs).then(function (res) {
+        App.lerComprovantesReceber(arqs, document.getElementById('pac-rec').value).then(function (res) {
           App.toast(res.length + ' comprovante(s) enviado(s). A Flávia vai conferir.', 'ok'); ctx.recarregar();
         }, function (e) { App.toast(e.message, 'erro'); el.disabled = false; el.textContent = 'Enviar comprovante'; });
       },
