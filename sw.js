@@ -1,7 +1,7 @@
 /* Service worker: guarda as telas para abrir rápido e recebe notificações do Firebase. */
-var VERSAO = 'giraosol-1.1.0';
-var ARQUIVOS = ['./', 'index.html', 'config.js?v=1.1.0', 'css/app.css?v=1.1.0', 'js/nucleo.js?v=1.1.0', 'js/conta.js?v=1.1.0', 'js/agenda.js?v=1.1.0', 'js/pacientes.js?v=1.1.0',
-  'js/presenca.js?v=1.1.0', 'js/financeiro.js?v=1.1.0', 'js/pagar.js?v=1.1.0', 'js/admin.js?v=1.1.0', 'icones/icone-192.png', 'icones/icone-512.png', 'icones/logo.png', 'manifest.webmanifest'];
+var VERSAO = 'giraosol-1.2.0';
+var ARQUIVOS = ['./', 'index.html', 'config.js?v=1.2.0', 'css/app.css?v=1.2.0', 'js/nucleo.js?v=1.2.0', 'js/conta.js?v=1.2.0', 'js/agenda.js?v=1.2.0', 'js/pacientes.js?v=1.2.0',
+  'js/presenca.js?v=1.2.0', 'js/financeiro.js?v=1.2.0', 'js/pagar.js?v=1.2.0', 'js/admin.js?v=1.2.0', 'icones/icone-192.png', 'icones/icone-512.png', 'icones/logo.png', 'manifest.webmanifest'];
 
 self.addEventListener('install', function (e) { e.waitUntil(caches.open(VERSAO).then(function (c) { return c.addAll(ARQUIVOS); }).then(function () { return self.skipWaiting(); })); });
 self.addEventListener('activate', function (e) {
