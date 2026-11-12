@@ -9,8 +9,14 @@
       return '<a class="' + (a[0] === atual ? 'ativo' : '') + '" href="#/' + a[0] + '">' + a[1] + '</a>';
     }).join('') + '</nav>';
   }
-  function carregarBase() { return Promise.all([App.api('pagar.fornecedores', {}), App.api('pagar.categorias')]); }
-  function selo(c) { return c.status === 'paga' ? '<span class="selo s-ok">Paga ' + U.dataBr(c.pagoEm) + '</span>' : (c.status === 'cancelada' ? '<span class="selo s-neu">Cancelada</span>' : (c.vencida ? '<span class="selo s-ruim">Vencida</span>' : '<span class="selo s-azul">A vencer</span>')); }
+  // Fornecedores e categorias quase não mudam: guarda por 5 minutos para as telas abrirem mais rápido.
+  var base = null, baseEm = 0;
+  function carregarBase() {
+    if (base && Date.now() - baseEm < 300000) return Promise.resolve(base);
+    return Promise.all([App.api('pagar.fornecedores', {}), App.api('pagar.categorias')]).then(function (r) { base = r; baseEm = Date.now(); return r; });
+  }
+  App.esquecerBasePagar = function () { base = null; };
+  function selo(c) { return c.status === 'paga' ? '<span class="selo s-ok">Paga ' + U.dataBr(c.pagoEm) + '</span>' : (c.status === 'cancelada' ? '<span class="selo s-neu">Cancelada</span>' : (c.agendada ? '<span class="selo s-esp">Agendada ' + U.dataBr(c.agendadaPara) + '</span>' : (c.vencida ? '<span class="selo s-ruim">Vencida</span>' : '<span class="selo s-azul">A vencer</span>'))); }
 
   App.tela('pagar', {
     titulo: 'Contas a pagar', perfis: FIN,
@@ -20,11 +26,18 @@
         pagoDe: q.pagoDe || '', pagoAte: q.pagoAte || '', fornecedorId: q.fornecedorId || '', categoriaId: q.categoriaId || '', situacao: q.situacao || 'todas', texto: q.texto || '' };
       ctx.dados.f = f;
       return Promise.all([App.api('pagar.contas', f), carregarBase()]).then(function (r) {
+        // Se a rotina das 7h não rodou, a baixa das contas agendadas acontece agora.
+        if (r[0].agendadasParaBaixar && !ctx.dados.baixouAgendadas) {
+          ctx.dados.baixouAgendadas = true;
+          return App.api('pagar.baixar_agendadas').then(function (x) { if (x.baixadas) App.toast(x.baixadas + ' conta(s) agendada(s) receberam baixa automática.', 'ok'); return Promise.all([App.api('pagar.contas', f), carregarBase()]); });
+        }
+        return r;
+      }).then(function (r) {
         var l = r[0].contas, t = r[0].totais; ctx.dados.forn = r[1][0]; ctx.dados.cats = r[1][1]; ctx.dados.mapa = {}; l.forEach(function (c) { ctx.dados.mapa[c.id] = c; });
         var h = abas('pagar') + '<form class="cartao" data-form="filtrar" style="gap:10px"><div class="form" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">' +
           '<label class="campo">Vencimento de<input class="ent" type="date" name="vencDe" value="' + f.vencDe + '"></label><label class="campo">até<input class="ent" type="date" name="vencAte" value="' + f.vencAte + '"></label>' +
           '<label class="campo">Pagamento de<input class="ent" type="date" name="pagoDe" value="' + f.pagoDe + '"></label><label class="campo">até<input class="ent" type="date" name="pagoAte" value="' + f.pagoAte + '"></label>' +
-          '<label class="campo">Situação<select class="ent" name="situacao">' + U.opcoes([{ v: 'todas', t: 'Todas' }, { v: 'aberta', t: 'Em aberto' }, { v: 'vencida', t: 'Vencidas' }, { v: 'paga', t: 'Pagas' }, { v: 'cancelada', t: 'Canceladas' }], f.situacao) + '</select></label>' +
+          '<label class="campo">Situação<select class="ent" name="situacao">' + U.opcoes([{ v: 'todas', t: 'Todas' }, { v: 'aberta', t: 'Em aberto' }, { v: 'vencida', t: 'Vencidas' }, { v: 'agendada', t: 'Agendadas' }, { v: 'paga', t: 'Pagas' }, { v: 'cancelada', t: 'Canceladas' }], f.situacao) + '</select></label>' +
           '<label class="campo">Fornecedor<select class="ent" name="fornecedorId">' + U.opcoes(ctx.dados.forn.map(function (x) { return { v: x.id, t: x.nome }; }), f.fornecedorId, 'Todos') + '</select></label>' +
           '<label class="campo">Categoria<select class="ent" name="categoriaId">' + U.opcoes(ctx.dados.cats.map(function (x) { return { v: x.id, t: x.nome }; }), f.categoriaId, 'Todas') + '</select></label>' +
           '<label class="campo">Descrição ou observação<input class="ent" name="texto" type="search" value="' + esc(f.texto) + '"></label></div>' +
@@ -35,7 +48,9 @@
         return h + '<div class="tabela-caixa"><table class="tab"><thead><tr><th>Vencimento</th><th>Fornecedor</th><th>Descrição</th><th>Categoria</th><th>Parcela</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead><tbody>' + l.map(function (c) {
           return '<tr><td>' + U.dataBr(c.vencimento) + '</td><td class="b">' + esc(c.fornecedor) + '</td><td>' + esc(c.descricao) + (c.observacao ? '<div class="sub peq">' + esc(c.observacao) + '</div>' : '') + '</td><td class="peq">' + esc(c.categoria) + '</td><td>' + esc(c.parcela) + '</td>' +
             '<td class="num b">' + U.moeda(c.status === 'paga' ? (c.valorPago || c.valor) : c.valor) + '</td><td>' + selo(c) + '</td><td><div class="linha" style="flex-wrap:nowrap">' +
-            (c.status === 'aberta' ? '<button class="btn peq pri" data-acao="baixa" data-id="' + c.id + '">Dar baixa</button><button class="btn peq" data-acao="editar" data-id="' + c.id + '">Editar</button>' : '') +
+            (c.status === 'aberta' ? '<button class="btn peq pri" data-acao="baixa" data-id="' + c.id + '">Dar baixa</button>' +
+              (c.agendada ? '<button class="btn peq" data-acao="desagendar" data-id="' + c.id + '">Tirar agendamento</button>' : '<button class="btn peq" data-acao="agendar" data-id="' + c.id + '">Agendei</button>') +
+              '<button class="btn peq" data-acao="editar" data-id="' + c.id + '">Editar</button>' : '') +
             (c.status === 'paga' ? '<button class="btn peq" data-acao="desfazer" data-id="' + c.id + '">Desfazer</button>' : '') +
             (c.anexoId ? '<button class="btn peq" data-acao="anexo" data-id="' + c.anexoId + '" aria-label="Ver anexo">' + I('anexo', 16) + '</button>' : '') + (c.comprovanteId ? '<button class="btn peq" data-acao="anexo" data-id="' + c.comprovanteId + '">Comprov.</button>' : '') +
             '</div></td></tr>';
@@ -59,6 +74,14 @@
               .then(function (an) { return App.chamar('pagar.baixa', { id: c.id, pagoEm: d.pagoEm, valorPago: U.lerNum(d.valorPago), comprovanteId: an ? an.id : '' }, 'Baixa registrada.'); }).then(function (r) { if (r) { m.fechar(); ctx.recarregar(); } });
           } } });
       },
+      agendar: function (el, ev, ctx) {
+        var c = ctx.dados.mapa[el.getAttribute('data-id')];
+        var m = App.modal({ titulo: 'Conta agendada no banco — ' + c.fornecedor, corpo: '<div class="sub" style="margin-bottom:8px">Na data do agendamento, o sistema dá a baixa sozinho (' + U.moeda(c.valor) + ') e avisa o financeiro. Se o pagamento não sair, use Desfazer.</div>' +
+          '<form class="form" data-form="ok"><label class="campo">Data do agendamento<input class="ent" type="date" name="data" required min="' + U.hoje() + '" value="' + (c.vencimento >= U.hoje() ? c.vencimento : U.hoje()) + '"></label>' +
+          '<div class="campo todo"><button class="btn pri" type="submit">Salvar agendamento</button></div></form>',
+          acoes: { ok: function (f) { return App.chamar('pagar.agendar', { id: c.id, data: U.dadosForm(f).data }, 'Conta agendada.').then(function (r) { if (r) { m.fechar(); ctx.recarregar(); } }); } } });
+      },
+      desagendar: function (el, ev, ctx) { App.chamar('pagar.desagendar', { id: el.getAttribute('data-id') }, 'Agendamento retirado.').then(function (r) { if (r) ctx.recarregar(); }); },
       desfazer: function (el, ev, ctx) { App.confirmar('Desfazer a baixa desta conta?', { campo: 'Motivo', botao: 'Desfazer baixa', perigo: true }).then(function (mo) { if (mo) App.chamar('pagar.desfazer_baixa', { id: el.getAttribute('data-id'), motivo: mo }, 'Baixa desfeita.').then(function (r) { if (r) ctx.recarregar(); }); }); },
       anexo: function (el) { App.api('anexos.baixar', { id: el.getAttribute('data-id') }).then(function (a) { U.abrir(a.mime, a.base64); }, function (e) { App.toast(e.message, 'erro'); }); }
     }
@@ -102,7 +125,7 @@
       '<label class="campo">Chave Pix<input class="ent" name="chavePix" value="' + esc(f.chavePix || '') + '"></label><label class="campo">Observação<input class="ent" name="observacao" value="' + esc(f.observacao || '') + '"></label>' +
       '<label class="marcar campo todo"><input type="checkbox" name="ativo"' + (f.ativo !== false ? ' checked' : '') + '>Ativo</label>' +
       '<div class="campo todo"><button class="btn pri" type="submit">Salvar fornecedor</button></div></form>',
-      acoes: { salvar: function (fm) { var d = U.dadosForm(fm); d.id = f.id; return App.chamar('pagar.fornecedor_salvar', d, 'Fornecedor salvo.').then(function (r) { if (r) { m.fechar(); depois(r); } }); } } });
+      acoes: { salvar: function (fm) { var d = U.dadosForm(fm); d.id = f.id; return App.chamar('pagar.fornecedor_salvar', d, 'Fornecedor salvo.').then(function (r) { if (r) { base = null; m.fechar(); depois(r); } }); } } });
   }
 
   App.tela('pagar/fornecedores', {
@@ -132,7 +155,7 @@
   function formCat(ctx, c) {
     c = c || { ativo: true };
     var m = App.modal({ titulo: c.id ? 'Editar categoria' : 'Nova categoria', corpo: '<form class="form" data-form="salvar"><label class="campo todo">Nome<input class="ent" name="nome" required value="' + esc(c.nome || '') + '"></label>' + (c.id ? '<label class="marcar"><input type="checkbox" name="ativo"' + (c.ativo !== false ? ' checked' : '') + '>Ativa</label>' : '') + '<div class="campo todo"><button class="btn pri" type="submit">Salvar</button></div></form>',
-      acoes: { salvar: function (f) { var d = U.dadosForm(f); d.id = c.id; if (d.ativo === undefined) d.ativo = true; return App.chamar('pagar.categoria_salvar', d, 'Categoria salva.').then(function (r) { if (r) { m.fechar(); ctx.recarregar(); } }); } } });
+      acoes: { salvar: function (f) { var d = U.dadosForm(f); d.id = c.id; if (d.ativo === undefined) d.ativo = true; base = null; return App.chamar('pagar.categoria_salvar', d, 'Categoria salva.').then(function (r) { if (r) { m.fechar(); ctx.recarregar(); } }); } } });
   }
 
   App.tela('pagar/recorrentes', {

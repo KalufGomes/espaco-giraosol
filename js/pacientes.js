@@ -15,17 +15,17 @@
         var fin = App.ehFin();
         return '<div class="linha"><input class="ent" type="search" placeholder="Buscar paciente ou responsável" data-acao-input="filtrar" id="busca-pac" style="max-width:360px">' +
           '<select class="ent" data-muda="situacao" style="width:auto">' + U.opcoes([{ v: 'ativo', t: 'Ativos' }, { v: 'inativo', t: 'Inativos' }, { v: 'todos', t: 'Todos' }], sit) + '</select>' +
+          (fin ? '<select class="ent" id="filtro-val" style="width:auto" aria-label="Valores">' + U.opcoes([{ v: '', t: 'Valores: todos' }, { v: 'conferir', t: 'Valores: a conferir (' + l.filter(function (p) { return !p.valoresConfirmados; }).length + ')' }, { v: 'conferidos', t: 'Valores: conferidos' }], ctx.q.valores || '') + '</select>' : '') +
           '<span style="flex:1"></span><a class="btn ama" href="#/pacientes/novo">' + I('mais', 18) + 'Novo paciente</a></div>' +
-          '<div class="tabela-caixa"><table class="tab"><thead><tr><th>Paciente</th><th>Responsável financeiro</th><th>Telefone</th>' + (fin ? '<th class="num">Valor da sessão</th><th>Valores</th>' : '') + '</tr></thead><tbody id="corpo-pac">' + linhas(l, fin) + '</tbody></table></div>' +
+          '<div class="tabela-caixa"><table class="tab"><thead><tr><th>Paciente</th><th>Responsável financeiro</th><th>Telefone</th>' + (fin ? '<th class="num">Valor da sessão</th><th>Valores</th>' : '') + '</tr></thead><tbody id="corpo-pac">' + linhas(filtrar(l, '', ctx.q.valores || ''), fin) + '</tbody></table></div>' +
           '<div class="sub">' + l.length + ' paciente(s).</div>';
       });
     },
     depois: function (ctx) {
-      var b = document.getElementById('busca-pac');
-      b.addEventListener('input', function () {
-        var t = U.normal(b.value);
-        document.getElementById('corpo-pac').innerHTML = linhas(ctx.dados.lista.filter(function (p) { return U.normal(p.nome + ' ' + p.responsavelNome).indexOf(t) >= 0; }), App.ehFin());
-      });
+      var b = document.getElementById('busca-pac'), fv = document.getElementById('filtro-val');
+      var atualizar = function () { document.getElementById('corpo-pac').innerHTML = linhas(filtrar(ctx.dados.lista, b.value, fv ? fv.value : ''), App.ehFin()); };
+      b.addEventListener('input', atualizar);
+      if (fv) fv.addEventListener('change', atualizar);
       b.focus();
     },
     acoes: {
@@ -33,6 +33,15 @@
       abrir: function (el) { location.hash = '#/pacientes/' + el.getAttribute('data-id'); }
     }
   });
+  function filtrar(l, texto, valores) {
+    var t = U.normal(texto || '');
+    return l.filter(function (p) {
+      if (t && U.normal(p.nome + ' ' + p.responsavelNome).indexOf(t) < 0) return false;
+      if (valores === 'conferir' && p.valoresConfirmados) return false;
+      if (valores === 'conferidos' && !p.valoresConfirmados) return false;
+      return true;
+    });
+  }
   function linhas(l, fin) {
     if (!l.length) return '<tr><td colspan="5" class="vazio">Nenhum paciente encontrado.</td></tr>';
     return l.map(function (p) {

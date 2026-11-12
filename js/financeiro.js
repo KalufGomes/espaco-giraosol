@@ -115,20 +115,49 @@
         var tot = l.reduce(function (s, c) { return s + Number(c.total); }, 0), saldo = l.reduce(function (s, c) { return s + c.saldo; }, 0);
         var h = '<form class="linha" data-form="filtrar"><select class="ent" name="mes" style="width:auto"><option value="">Todos os meses</option>' + U.opcoesMeses(filtro.competencia) + '</select>' +
           '<select class="ent" name="status" style="width:auto">' + U.opcoes([{ v: '', t: 'Todas as situações' }, { v: 'aberta', t: 'Em aberto' }, { v: 'parcial', t: 'Parciais' }, { v: 'atrasadas', t: 'Atrasadas' }, { v: 'paga', t: 'Pagas' }], filtro.status) + '</select>' +
-          '<input class="ent" name="busca" type="search" placeholder="Responsável ou paciente" value="' + esc(filtro.busca) + '" style="max-width:260px"><button class="btn" type="submit">Filtrar</button></form>' +
+          '<input class="ent" name="busca" type="search" placeholder="Responsável ou paciente" value="' + esc(filtro.busca) + '" style="max-width:260px"><button class="btn" type="submit">Filtrar</button><span style="flex:1"></span><button class="btn ama" type="button" data-acao="receita">+ Lançar receita avulsa</button></form>' +
           '<div class="grade-cartoes"><div class="kpi"><span class="r">Total</span><span class="v">' + U.moeda(tot) + '</span><span class="sub">' + l.length + ' cobrança(s)</span></div><div class="kpi"><span class="r">Recebido</span><span class="v">' + U.moeda(tot - saldo) + '</span></div><div class="kpi escuro"><span class="r">Em aberto</span><span class="v">' + U.moeda(saldo) + '</span></div></div>';
         if (!l.length) return h + '<div class="cartao vazio">Nenhuma cobrança com esses filtros.</div>';
         return h + '<div class="tabela-caixa"><table class="tab"><thead><tr><th>Responsável</th><th>Paciente(s)</th><th>Mês</th><th>Vencimento</th><th class="num">Total</th><th class="num">Saldo</th><th>Situação</th><th>Enviada</th></tr></thead><tbody>' + l.map(function (c) {
-          return '<tr class="clic" data-acao="abrir" data-id="' + c.id + '"><td class="b">' + esc(c.responsavelNome) + '</td><td>' + esc(c.pacientes.join(', ')) + '</td><td>' + (c.modalidade === 'sessao' ? 'Sessão' : U.nomeMes(c.competencia)) + '</td><td>' + U.dataBr(c.vencimento) + '</td>' +
+          return '<tr class="clic" data-acao="abrir" data-id="' + c.id + '"><td class="b">' + esc(c.responsavelNome) + '</td><td>' + esc(c.pacientes.join(', ')) + '</td><td>' + (c.modalidade === 'sessao' ? 'Sessão' : U.nomeMes(c.competencia) + (c.modalidade === 'avulsa' ? ' <span class="selo s-neu">avulsa</span>' : '')) + '</td><td>' + U.dataBr(c.vencimento) + '</td>' +
             '<td class="num">' + U.moeda(c.total) + '</td><td class="num b">' + U.moeda(c.saldo) + '</td><td>' + App.seloCobranca(c) + '</td><td>' + (c.enviadoEm ? '<span class="selo s-ok">' + U.dataBr(c.enviadoEm) + '</span>' : '—') + '</td></tr>';
         }).join('') + '</tbody></table></div>';
       });
     },
     acoes: {
       filtrar: function (f) { var d = U.dadosForm(f); location.hash = '#/financeiro/cobrancas?mes=' + encodeURIComponent(d.mes) + '&status=' + d.status + '&busca=' + encodeURIComponent(d.busca); },
-      abrir: function (el) { location.hash = '#/financeiro/cobrancas/' + el.getAttribute('data-id'); }
+      abrir: function (el) { location.hash = '#/financeiro/cobrancas/' + el.getAttribute('data-id'); },
+      receita: function (el, ev, ctx) { abrirReceita(ctx); }
     }
   });
+
+  /* Receita avulsa: cobrança lançada à mão, fora do fechamento (ex.: mês anterior ao sistema). */
+  function abrirReceita(ctx) {
+    App.listaPacientes().then(function (pacs) {
+      var ref = U.compAnterior(U.comp());
+      var m = App.modal({ titulo: 'Lançar receita avulsa', corpo:
+        '<div class="sub" style="margin-bottom:8px">Vira uma cobrança normal (WhatsApp, baixa, recibo). Não entra no fechamento nem no repasse.</div>' +
+        '<form class="form" data-form="salvar"><label class="campo todo">Paciente<select class="ent" name="pacienteId" required>' + U.opcoes(pacs.map(function (p) { return { v: p.id, t: p.nome + (p.responsavelNome ? ' — ' + p.responsavelNome : '') }; }), '', 'Escolha…') + '</select></label>' +
+        '<label class="campo todo">Descrição<input class="ent" name="descricao" required value="Sessões de ' + esc(U.nomeMes(ref)) + '"></label>' +
+        '<label class="campo">Mês de referência<select class="ent" name="competencia">' + U.opcoesMeses(ref) + '</select></label>' +
+        '<label class="campo">Valor (R$)<input class="ent" name="valor" inputmode="decimal" required></label>' +
+        '<label class="campo">Vencimento<input class="ent" type="date" name="vencimento" required value="' + U.hoje() + '"></label>' +
+        '<div class="campo todo"><label class="marcar"><input type="checkbox" name="recebido" data-muda="recebido">Já recebido (lança e dá baixa)</label></div>' +
+        '<div class="form campo todo oculto" id="rec-pg" style="padding:0"><label class="campo">Data do pagamento<input class="ent" type="date" name="dataPg" value="' + U.hoje() + '"></label>' +
+        '<label class="campo">Forma<select class="ent" name="forma">' + U.opcoes(FORMAS, 'pix') + '</select></label></div>' +
+        '<div class="campo todo"><button class="btn pri" type="submit">Lançar</button></div></form>',
+        acoes: {
+          recebido: function (el) { m.el.querySelector('#rec-pg').classList.toggle('oculto', !el.checked); },
+          salvar: function (f) {
+            var d = U.dadosForm(f), v = U.lerNum(d.valor);
+            if (!(v > 0)) { App.toast('Informe o valor.', 'erro'); return; }
+            var dados = { pacienteId: d.pacienteId, descricao: d.descricao, competencia: d.competencia, valor: v, vencimento: d.vencimento };
+            if (d.recebido) dados.recebido = { data: d.dataPg, forma: d.forma };
+            return App.chamar('financeiro.receita', dados, d.recebido ? 'Receita lançada e baixada.' : 'Receita lançada.').then(function (r) { if (r) { m.fechar(); location.hash = '#/financeiro/cobrancas/' + r.id; } });
+          }
+        } });
+    });
+  }
 
   App.tela('financeiro/cobrancas/:id', {
     titulo: 'Cobrança', menu: 'financeiro/cobrancas', perfis: FIN,
@@ -139,7 +168,9 @@
         var h = '<div class="linha entre"><div><a class="peq" href="#/financeiro/cobrancas">← Contas a receber</a><h1>' + esc(c.responsavelNome) + '</h1><div class="sub">' + esc(c.pacientes.join(', ')) + ' · ' + (c.modalidade === 'sessao' ? 'sessão de ' + U.dataBr(c.vencimento) : U.nomeMes(c.competencia)) + '</div></div>' + App.seloCobranca(c) + '</div>' +
           '<div class="grade-cartoes"><div class="kpi"><span class="r">Total</span><span class="v">' + U.moeda(c.total) + '</span></div><div class="kpi"><span class="r">Pago</span><span class="v">' + U.moeda(c.pago) + '</span></div><div class="kpi escuro"><span class="r">Saldo</span><span class="v">' + U.moeda(c.saldo) + '</span><span class="r">Vence em ' + U.dataBr(c.vencimento) + '</span></div></div>' +
           '<div class="linha">' + (aberta && c.whatsapp ? '<button class="btn zap" data-acao="enviar">' + I('zap', 18) + 'Enviar cobrança pelo WhatsApp</button>' + (navigator.canShare ? '<button class="btn" data-acao="compartilhar">' + I('anexo', 18) + 'Enviar com a folha anexada</button>' : '') : '') +
-          (!c.whatsapp ? '<span class="selo s-esp">Responsável sem telefone</span>' : '') + (Number(c.pago) > 0 ? '<button class="btn" data-acao="recibo">Emitir recibo</button>' : '') + (c.reciboAnexoId ? '<button class="btn" data-acao="verAnexo" data-id="' + c.reciboAnexoId + '">Último recibo</button>' : '') + '</div>' +
+          (!c.whatsapp ? '<span class="selo s-esp">Responsável sem telefone</span>' : '') + (Number(c.pago) > 0 ? '<button class="btn" data-acao="recibo">Emitir recibo</button>' : '') + (c.reciboAnexoId ? '<button class="btn" data-acao="verAnexo" data-id="' + c.reciboAnexoId + '">Último recibo</button>' : '') +
+          (c.modalidade === 'avulsa' && c.status !== 'cancelada' && !Number(c.pago) ? '<button class="btn perigo" data-acao="cancelarReceita">Cancelar receita</button>' : '') + '</div>' +
+          (c.modalidade === 'avulsa' ? '<div class="sub">Receita avulsa, lançada à mão.' + (c.status === 'cancelada' ? ' <b>Cancelada.</b>' : '') + '</div>' : '') +
           (c.enviadoEm ? '<div class="sub">Cobrança enviada em ' + U.dataHoraBr(c.enviadoEm) + '.</div>' : '') +
           '<section class="cartao"><h2>Itens</h2>' + tabelaItens(c.itensJson || []) + '</section>';
         if (aberta) h += '<section class="cartao"><h2>Dar baixa</h2><form class="form" data-form="baixa"><label class="campo">Valor pago (R$)<input class="ent" name="valor" inputmode="decimal" required value="' + U.num(c.saldo) + '"></label>' +
@@ -153,6 +184,7 @@
       });
     },
     acoes: {
+      cancelarReceita: function (el, ev, ctx) { App.confirmar('Cancelar esta receita avulsa? Ela sai das contas a receber.', { campo: 'Motivo', perigo: true, botao: 'Cancelar receita' }).then(function (m) { if (m) App.chamar('financeiro.receita_cancelar', { id: ctx.id, motivo: m }, 'Receita cancelada.').then(function (r) { if (r) location.hash = '#/financeiro/cobrancas'; }); }); },
       baixa: function (f, ev, ctx) {
         var d = U.dadosForm(f), arq = f.querySelector('[name=_arq]').files[0];
         var antes = arq ? U.lerArquivo(arq).then(function (a) { return App.api('anexos.enviar', { tipo: 'comprovante', nome: a.nome, mime: a.mime, base64: a.base64, entidade: 'Cobrancas', entidadeId: ctx.id }); }) : Promise.resolve(null);
